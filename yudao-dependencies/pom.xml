@@ -53,6 +53,7 @@
         <lombok.version>1.18.38</lombok.version>
         <mapstruct.version>1.6.3</mapstruct.version>
         <hutool-5.version>5.8.35</hutool-5.version>
+        <hutool-6.version>6.0.0-M19</hutool-6.version>
         <easyexcel.version>4.0.3</easyexcel.version>
         <velocity.version>2.4.1</velocity.version>
         <fastjson.version>1.2.83</fastjson.version>
@@ -472,9 +473,9 @@
                 <version>${hutool-5.version}</version>
             </dependency>
             <dependency>
-                <groupId>cn.hutool</groupId>
+                <groupId>org.dromara.hutool</groupId>
                 <artifactId>hutool-extra</artifactId>
-                <version>${hutool-5.version}</version>
+                <version>${hutool-6.version}</version>
             </dependency>
 
             <dependency>

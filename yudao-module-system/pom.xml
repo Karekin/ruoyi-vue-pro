@@ -114,13 +114,10 @@
             <artifactId>captcha-spring-boot-starter</artifactId> <!-- 验证码，一般用于登录使用 -->
         </dependency>
 
-        <!-- 邮件相关 -->
         <dependency>
-            <groupId>cn.hutool</groupId>
-            <artifactId>hutool-extra</artifactId>
+            <groupId>org.dromara.hutool</groupId>
+            <artifactId>hutool-extra</artifactId> <!-- 邮件 -->
         </dependency>
-
-        <!-- 积木报表 -->
 
     </dependencies>
 
