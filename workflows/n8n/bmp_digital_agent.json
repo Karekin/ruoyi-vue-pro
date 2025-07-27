@@ -1,0 +1,415 @@
+{
+  "name": "BPM Digital Agent Workflow",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "intervalSize": 2,
+          "intervalUnit": "hours"
+        }
+      },
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 生成BPM测试数据\nconst processTypes = ['oa_leave', 'expense_claim', 'purchase_approval', 'contract_review'];\nconst activities = ['create_process', 'approve_task', 'reject_task', 'monitor_process'];\n\nconst randomProcessType = processTypes[Math.floor(Math.random() * processTypes.length)];\nconst randomActivity = activities[Math.floor(Math.random() * activities.length)];\nconst startTime = new Date();\n\nconst testData = {\n  agentType: 'BPM',\n  agentName: 'BPM工作流专员',\n  activityType: 'BPM_' + randomActivity.toUpperCase(),\n  activityDesc: `模拟${randomActivity}操作`,\n  businessData: {\n    processType: randomProcessType,\n    applicant: 'digital_agent_' + Math.floor(Math.random() * 100),\n    amount: Math.floor(Math.random() * 10000) + 1000,\n    reason: '数字专员模拟申请',\n    priority: Math.floor(Math.random() * 3) + 1,\n    department: ['IT', '财务', '人事', '采购'][Math.floor(Math.random() * 4)]\n  },\n  executionTime: startTime.toISOString()\n};\n\nreturn [testData];"
+      },
+      "name": "Generate BPM Test Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        460,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SYSTEM_BASE_URL}}/admin-api/bpm/process-instance/create",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.ADMIN_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "processDefinitionKey",
+              "value": "={{$json.businessData.processType}}"
+            },
+            {
+              "name": "variables",
+              "value": "={{$json.businessData}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Create Process Instance",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 处理API响应并准备记录数据\nconst startTime = new Date($input.first().json.executionTime);\nconst endTime = new Date();\nconst duration = endTime.getTime() - startTime.getTime();\n\nconst response = $input.all()[1].json;\nconst isSuccess = response.statusCode === 200;\n\nconst activityData = {\n  agentType: $input.first().json.agentType,\n  agentName: $input.first().json.agentName,\n  activityType: $input.first().json.activityType,\n  activityDesc: $input.first().json.activityDesc,\n  businessData: JSON.stringify({\n    ...$input.first().json.businessData,\n    processInstanceId: isSuccess ? response.body?.data : null,\n    statusCode: response.statusCode\n  }),\n  resultStatus: isSuccess ? 'SUCCESS' : 'FAILED',\n  errorMessage: isSuccess ? null : response.body?.msg || '未知错误',\n  executionTime: $input.first().json.executionTime,\n  durationMs: duration,\n  tenantId: 1\n};\n\nreturn [activityData];"
+      },
+      "name": "Process API Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SYSTEM_BASE_URL}}/admin-api/system/digital-agent/activity/record",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.ADMIN_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "agentType",
+              "value": "={{$json.agentType}}"
+            },
+            {
+              "name": "agentName",
+              "value": "={{$json.agentName}}"
+            },
+            {
+              "name": "activityType",
+              "value": "={{$json.activityType}}"
+            },
+            {
+              "name": "activityDesc",
+              "value": "={{$json.activityDesc}}"
+            },
+            {
+              "name": "businessData",
+              "value": "={{$json.businessData}}"
+            },
+            {
+              "name": "resultStatus",
+              "value": "={{$json.resultStatus}}"
+            },
+            {
+              "name": "errorMessage",
+              "value": "={{$json.errorMessage}}"
+            },
+            {
+              "name": "executionTime",
+              "value": "={{$json.executionTime}}"
+            },
+            {
+              "name": "durationMs",
+              "value": "={{$json.durationMs}}"
+            },
+            {
+              "name": "tenantId",
+              "value": "={{$json.tenantId}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Record Activity",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 检查是否需要发送告警\nconst activityData = $input.first().json;\n\nif (activityData.resultStatus === 'FAILED') {\n  // 获取最近的失败次数\n  const alertData = {\n    agentType: activityData.agentType,\n    alertType: 'ACTIVITY_FAILED',\n    alertLevel: 'MEDIUM',\n    alertTitle: 'BPM专员活动失败',\n    alertMessage: `BPM专员执行${activityData.activityType}失败: ${activityData.errorMessage}`,\n    alertData: JSON.stringify({\n      activityType: activityData.activityType,\n      errorMessage: activityData.errorMessage,\n      executionTime: activityData.executionTime\n    })\n  };\n  \n  return [alertData];\n} else {\n  // 成功时不发送告警\n  return [];\n}"
+      },
+      "name": "Check Alert Condition",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SYSTEM_BASE_URL}}/admin-api/system/digital-agent/alert/create",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.ADMIN_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "agentType",
+              "value": "={{$json.agentType}}"
+            },
+            {
+              "name": "alertType",
+              "value": "={{$json.alertType}}"
+            },
+            {
+              "name": "alertLevel",
+              "value": "={{$json.alertLevel}}"
+            },
+            {
+              "name": "alertTitle",
+              "value": "={{$json.alertTitle}}"
+            },
+            {
+              "name": "alertMessage",
+              "value": "={{$json.alertMessage}}"
+            },
+            {
+              "name": "alertData",
+              "value": "={{$json.alertData}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Create Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 生成任务审批测试数据\nconst taskActions = ['approve', 'reject', 'delegate', 'claim'];\nconst randomAction = taskActions[Math.floor(Math.random() * taskActions.length)];\n\nconst taskData = {\n  agentType: 'BPM',\n  agentName: 'BPM工作流专员',\n  activityType: 'BPM_TASK_' + randomAction.toUpperCase(),\n  activityDesc: `模拟任务${randomAction}操作`,\n  businessData: {\n    taskId: 'task_' + Math.floor(Math.random() * 1000),\n    processInstanceId: 'process_' + Math.floor(Math.random() * 1000),\n    assignee: 'agent_' + Math.floor(Math.random() * 10),\n    comment: '数字专员自动处理',\n    action: randomAction,\n    variables: {\n      approved: randomAction === 'approve',\n      reason: randomAction === 'reject' ? '不符合审批条件' : '满足审批要求'\n    }\n  },\n  executionTime: new Date().toISOString()\n};\n\nreturn [taskData];"
+      },
+      "name": "Generate Task Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 1,
+      "position": [
+        460,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SYSTEM_BASE_URL}}/admin-api/bpm/task/{{$json.businessData.taskId}}/{{$json.businessData.action}}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.ADMIN_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "reason",
+              "value": "={{$json.businessData.comment}}"
+            },
+            {
+              "name": "variables",
+              "value": "={{$json.businessData.variables}}"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "name": "Process Task",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [
+        680,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Generate BPM Test Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Task Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate BPM Test Data": {
+      "main": [
+        [
+          {
+            "node": "Create Process Instance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Process Instance": {
+      "main": [
+        [
+          {
+            "node": "Process API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process API Response": {
+      "main": [
+        [
+          {
+            "node": "Record Activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record Activity": {
+      "main": [
+        [
+          {
+            "node": "Check Alert Condition",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Alert Condition": {
+      "main": [
+        [
+          {
+            "node": "Create Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Task Data": {
+      "main": [
+        [
+          {
+            "node": "Process Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Task": {
+      "main": [
+        [
+          {
+            "node": "Process API Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "1.0.0"
+} 

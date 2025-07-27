@@ -1,0 +1,628 @@
+{
+  "name": "ERP采购管理专员",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9,
+              "triggerAtMinute": 0
+            },
+            {
+              "triggerAtHour": 14,
+              "triggerAtMinute": 0
+            },
+            {
+              "triggerAtHour": 17,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "start_trigger",
+      "name": "定时触发",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const config = {\n  baseUrl: $env.YUDAO_API_BASE_URL || 'http://localhost:8080',\n  tenantId: $env.YUDAO_TENANT_ID || '1',\n  username: $env.YUDAO_USERNAME || 'admin',\n  password: $env.YUDAO_PASSWORD || 'admin123',\n  agentType: 'ERP_PURCHASE',\n  activities: [\n    {\n      type: 'ERP_PURCHASE_ORDER_CREATE',\n      name: '创建采购订单',\n      weight: 30\n    },\n    {\n      type: 'ERP_PURCHASE_IN_CREATE',\n      name: '创建采购入库',\n      weight: 25\n    },\n    {\n      type: 'ERP_PURCHASE_RETURN_CREATE',\n      name: '创建采购退货',\n      weight: 20\n    },\n    {\n      type: 'ERP_SUPPLIER_CREATE',\n      name: '创建供应商',\n      weight: 15\n    },\n    {\n      type: 'ERP_SUPPLIER_QUERY',\n      name: '查询供应商',\n      weight: 10\n    }\n  ]\n};\n\nreturn { config };"
+      },
+      "id": "init_config",
+      "name": "初始化配置",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "httpBasicAuth",
+        "url": "={{ $node['init_config'].json.config.baseUrl }}/admin-api/system/auth/login",
+        "options": {
+          "headers": {
+            "Content-Type": "application/json"
+          }
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "{\n  \"username\": \"{{ $node['init_config'].json.config.username }}\",\n  \"password\": \"{{ $node['init_config'].json.config.password }}\",\n  \"tenantId\": \"{{ $node['init_config'].json.config.tenantId }}\"\n}"
+      },
+      "id": "login",
+      "name": "系统登录",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const loginResponse = $node['login'].json;\nconst config = $node['init_config'].json.config;\n\nif (loginResponse.code !== 0) {\n  throw new Error('登录失败: ' + loginResponse.msg);\n}\n\nconst token = loginResponse.data.accessToken;\nconst headers = {\n  'Authorization': 'Bearer ' + token,\n  'Content-Type': 'application/json',\n  'tenant-id': config.tenantId\n};\n\n// 根据权重随机选择活动\nconst activities = config.activities;\nconst totalWeight = activities.reduce((sum, act) => sum + act.weight, 0);\nconst random = Math.random() * totalWeight;\nlet currentWeight = 0;\nlet selectedActivity = null;\n\nfor (const activity of activities) {\n  currentWeight += activity.weight;\n  if (random <= currentWeight) {\n    selectedActivity = activity;\n    break;\n  }\n}\n\nif (!selectedActivity) {\n  selectedActivity = activities[0];\n}\n\nreturn {\n  config,\n  token,\n  headers,\n  selectedActivity,\n  baseUrl: config.baseUrl\n};"
+      },
+      "id": "prepare_activity",
+      "name": "准备活动",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['prepare_activity'].json.baseUrl }}/infra/digital-agent/record-start",
+        "options": {
+          "headers": "={{ $node['prepare_activity'].json.headers }}"
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "agentType",
+              "value": "={{ $node['prepare_activity'].json.config.agentType }}"
+            },
+            {
+              "name": "activityType",
+              "value": "={{ $node['prepare_activity'].json.selectedActivity.type }}"
+            },
+            {
+              "name": "activityName",
+              "value": "={{ $node['prepare_activity'].json.selectedActivity.name }}"
+            },
+            {
+              "name": "requestData",
+              "value": "{{ JSON.stringify({timestamp: new Date().toISOString(), activity: $node['prepare_activity'].json.selectedActivity}) }}"
+            }
+          ]
+        }
+      },
+      "id": "record_start",
+      "name": "记录活动开始",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1",
+              "leftValue": "={{ $node['prepare_activity'].json.selectedActivity.type }}",
+              "rightValue": "ERP_PURCHASE_ORDER_CREATE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "2",
+              "leftValue": "={{ $node['prepare_activity'].json.selectedActivity.type }}",
+              "rightValue": "ERP_PURCHASE_IN_CREATE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "3",
+              "leftValue": "={{ $node['prepare_activity'].json.selectedActivity.type }}",
+              "rightValue": "ERP_PURCHASE_RETURN_CREATE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "4",
+              "leftValue": "={{ $node['prepare_activity'].json.selectedActivity.type }}",
+              "rightValue": "ERP_SUPPLIER_CREATE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "5",
+              "leftValue": "={{ $node['prepare_activity'].json.selectedActivity.type }}",
+              "rightValue": "ERP_SUPPLIER_QUERY",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "activity_switch",
+      "name": "活动分支",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $node['prepare_activity'].json.headers;\nconst baseUrl = $node['prepare_activity'].json.baseUrl;\n\n// 获取供应商列表\nconst suppliersResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/supplier/simple-list', {\n  headers: headers\n});\n\nlet supplierIds = [];\nif (suppliersResponse.code === 0 && suppliersResponse.data && suppliersResponse.data.length > 0) {\n  supplierIds = suppliersResponse.data.map(s => s.id);\n} else {\n  // 如果没有供应商，创建一个默认供应商\n  const newSupplier = {\n    name: '测试供应商' + Date.now(),\n    contact: '张三',\n    mobile: '13800138000',\n    status: 1,\n    sort: 1\n  };\n  \n  const createSupplierResponse = await $executeWorkflow('POST', baseUrl + '/admin-api/erp/supplier/create', {\n    headers: headers,\n    body: JSON.stringify(newSupplier)\n  });\n  \n  if (createSupplierResponse.code === 0) {\n    supplierIds.push(createSupplierResponse.data);\n  }\n}\n\n// 获取产品列表\nconst productsResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/product/page?pageNo=1&pageSize=10', {\n  headers: headers\n});\n\nlet productIds = [];\nif (productsResponse.code === 0 && productsResponse.data && productsResponse.data.list && productsResponse.data.list.length > 0) {\n  productIds = productsResponse.data.list.map(p => p.id);\n}\n\n// 创建采购订单数据\nconst orderData = {\n  supplierId: supplierIds[Math.floor(Math.random() * supplierIds.length)],\n  orderTime: new Date().toISOString(),\n  discountPercent: 0,\n  depositPrice: 0,\n  remark: 'ERP采购专员自动创建',\n  items: []\n};\n\nif (productIds.length > 0) {\n  const itemCount = Math.floor(Math.random() * 3) + 1; // 1-3个商品\n  for (let i = 0; i < itemCount; i++) {\n    const productId = productIds[Math.floor(Math.random() * productIds.length)];\n    orderData.items.push({\n      productId: productId,\n      productUnitId: 1, // 假设单位ID为1\n      productPrice: Math.floor(Math.random() * 1000) + 100,\n      count: Math.floor(Math.random() * 10) + 1,\n      taxPercent: 0,\n      remark: '自动生成'\n    });\n  }\n}\n\nreturn {\n  orderData,\n  supplierIds,\n  productIds,\n  headers,\n  baseUrl\n};"
+      },
+      "id": "create_purchase_order",
+      "name": "创建采购订单",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['create_purchase_order'].json.baseUrl }}/admin-api/erp/purchase-order/create",
+        "options": {
+          "headers": "={{ $node['create_purchase_order'].json.headers }}"
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($node['create_purchase_order'].json.orderData) }}"
+      },
+      "id": "submit_purchase_order",
+      "name": "提交采购订单",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $node['prepare_activity'].json.headers;\nconst baseUrl = $node['prepare_activity'].json.baseUrl;\n\n// 获取已审核的采购订单\nconst ordersResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/purchase-order/page?pageNo=1&pageSize=10&status=20', {\n  headers: headers\n});\n\nlet orderIds = [];\nif (ordersResponse.code === 0 && ordersResponse.data && ordersResponse.data.list && ordersResponse.data.list.length > 0) {\n  orderIds = ordersResponse.data.list.map(o => o.id);\n}\n\nif (orderIds.length === 0) {\n  throw new Error('没有找到可用的采购订单');\n}\n\n// 获取订单详情\nconst orderId = orderIds[Math.floor(Math.random() * orderIds.length)];\nconst orderDetailResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/purchase-order/get?id=' + orderId, {\n  headers: headers\n});\n\nif (orderDetailResponse.code !== 0) {\n  throw new Error('获取采购订单详情失败');\n}\n\nconst orderDetail = orderDetailResponse.data;\n\n// 创建采购入库数据\nconst inData = {\n  orderId: orderId,\n  supplierId: orderDetail.supplierId,\n  inTime: new Date().toISOString(),\n  remark: 'ERP采购专员自动创建入库',\n  items: orderDetail.items.map(item => ({\n    orderId: orderId,\n    productId: item.productId,\n    productUnitId: item.productUnitId,\n    productPrice: item.productPrice,\n    count: Math.floor(item.count * 0.8), // 入库80%的数量\n    remark: '自动生成入库'\n  }))\n};\n\nreturn {\n  inData,\n  orderId,\n  orderDetail,\n  headers,\n  baseUrl\n};"
+      },
+      "id": "create_purchase_in",
+      "name": "创建采购入库",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['create_purchase_in'].json.baseUrl }}/admin-api/erp/purchase-in/create",
+        "options": {
+          "headers": "={{ $node['create_purchase_in'].json.headers }}"
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($node['create_purchase_in'].json.inData) }}"
+      },
+      "id": "submit_purchase_in",
+      "name": "提交采购入库",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $node['prepare_activity'].json.headers;\nconst baseUrl = $node['prepare_activity'].json.baseUrl;\n\n// 获取已审核的采购订单\nconst ordersResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/purchase-order/page?pageNo=1&pageSize=10&status=20', {\n  headers: headers\n});\n\nlet orderIds = [];\nif (ordersResponse.code === 0 && ordersResponse.data && ordersResponse.data.list && ordersResponse.data.list.length > 0) {\n  orderIds = ordersResponse.data.list.map(o => o.id);\n}\n\nif (orderIds.length === 0) {\n  throw new Error('没有找到可用的采购订单');\n}\n\n// 获取订单详情\nconst orderId = orderIds[Math.floor(Math.random() * orderIds.length)];\nconst orderDetailResponse = await $executeWorkflow('GET', baseUrl + '/admin-api/erp/purchase-order/get?id=' + orderId, {\n  headers: headers\n});\n\nif (orderDetailResponse.code !== 0) {\n  throw new Error('获取采购订单详情失败');\n}\n\nconst orderDetail = orderDetailResponse.data;\n\n// 创建采购退货数据\nconst returnData = {\n  orderId: orderId,\n  supplierId: orderDetail.supplierId,\n  returnTime: new Date().toISOString(),\n  remark: 'ERP采购专员自动创建退货',\n  items: orderDetail.items.slice(0, 1).map(item => ({\n    orderId: orderId,\n    productId: item.productId,\n    productUnitId: item.productUnitId,\n    productPrice: item.productPrice,\n    count: Math.floor(item.count * 0.1), // 退货10%的数量\n    remark: '质量问题退货'\n  }))\n};\n\nreturn {\n  returnData,\n  orderId,\n  orderDetail,\n  headers,\n  baseUrl\n};"
+      },
+      "id": "create_purchase_return",
+      "name": "创建采购退货",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['create_purchase_return'].json.baseUrl }}/admin-api/erp/purchase-return/create",
+        "options": {
+          "headers": "={{ $node['create_purchase_return'].json.headers }}"
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($node['create_purchase_return'].json.returnData) }}"
+      },
+      "id": "submit_purchase_return",
+      "name": "提交采购退货",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const headers = $node['prepare_activity'].json.headers;\nconst baseUrl = $node['prepare_activity'].json.baseUrl;\n\n// 生成随机供应商数据\nconst supplierNames = ['优质供应商', '可靠供应商', '专业供应商', '优秀供应商', '信誉供应商'];\nconst contacts = ['张三', '李四', '王五', '赵六', '孙七'];\nconst mobiles = ['13800138000', '13900139000', '13700137000', '13600136000', '13500135000'];\n\nconst supplierData = {\n  name: supplierNames[Math.floor(Math.random() * supplierNames.length)] + Date.now(),\n  contact: contacts[Math.floor(Math.random() * contacts.length)],\n  mobile: mobiles[Math.floor(Math.random() * mobiles.length)],\n  telephone: '021-' + (Math.floor(Math.random() * 90000000) + 10000000),\n  email: 'supplier' + Date.now() + '@test.com',\n  remark: 'ERP采购专员自动创建',\n  status: 1,\n  sort: Math.floor(Math.random() * 100) + 1\n};\n\nreturn {\n  supplierData,\n  headers,\n  baseUrl\n};"
+      },
+      "id": "create_supplier",
+      "name": "创建供应商",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['create_supplier'].json.baseUrl }}/admin-api/erp/supplier/create",
+        "options": {
+          "headers": "={{ $node['create_supplier'].json.headers }}"
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{ JSON.stringify($node['create_supplier'].json.supplierData) }}"
+      },
+      "id": "submit_supplier",
+      "name": "提交供应商",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1600,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['prepare_activity'].json.baseUrl }}/admin-api/erp/supplier/page?pageNo=1&pageSize=10",
+        "options": {
+          "headers": "={{ $node['prepare_activity'].json.headers }}"
+        }
+      },
+      "id": "query_supplier",
+      "name": "查询供应商",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const recordStartResponse = $node['record_start'].json;\nconst activityId = recordStartResponse.data;\n\n// 获取执行结果\nconst currentNode = $node;\nconst nodeNames = ['submit_purchase_order', 'submit_purchase_in', 'submit_purchase_return', 'submit_supplier', 'query_supplier'];\n\nlet response = null;\nlet responseData = null;\nlet isSuccess = false;\n\nfor (const nodeName of nodeNames) {\n  if ($node[nodeName] && $node[nodeName].json) {\n    response = $node[nodeName].json;\n    responseData = response;\n    isSuccess = response.code === 0;\n    break;\n  }\n}\n\nif (!response) {\n  throw new Error('未找到执行结果');\n}\n\nconst headers = $node['prepare_activity'].json.headers;\nconst baseUrl = $node['prepare_activity'].json.baseUrl;\n\nconst endTime = Date.now();\nconst startTime = new Date($node['record_start'].json.timestamp || Date.now() - 5000).getTime();\nconst responseTime = endTime - startTime;\n\nlet recordUrl, recordData;\n\nif (isSuccess) {\n  recordUrl = baseUrl + '/infra/digital-agent/record-success';\n  recordData = {\n    activityId: activityId,\n    responseData: JSON.stringify(responseData),\n    responseTime: responseTime\n  };\n} else {\n  recordUrl = baseUrl + '/infra/digital-agent/record-failed';\n  recordData = {\n    activityId: activityId,\n    errorMessage: response.msg || '执行失败',\n    responseTime: responseTime\n  };\n}\n\nreturn {\n  recordUrl,\n  recordData,\n  headers,\n  isSuccess,\n  response\n};"
+      },
+      "id": "record_result",
+      "name": "记录结果",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $node['record_result'].json.recordUrl }}",
+        "options": {
+          "headers": "={{ $node['record_result'].json.headers }}"
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "activityId",
+              "value": "={{ $node['record_result'].json.recordData.activityId }}"
+            },
+            {
+              "name": "responseData",
+              "value": "={{ $node['record_result'].json.recordData.responseData }}"
+            },
+            {
+              "name": "responseTime",
+              "value": "={{ $node['record_result'].json.recordData.responseTime }}"
+            },
+            {
+              "name": "errorMessage",
+              "value": "={{ $node['record_result'].json.recordData.errorMessage }}"
+            }
+          ]
+        }
+      },
+      "id": "submit_record",
+      "name": "提交记录",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const recordResponse = $node['submit_record'].json;\nconst activityResult = $node['record_result'].json;\n\nconst summary = {\n  timestamp: new Date().toISOString(),\n  agentType: 'ERP_PURCHASE',\n  activityType: $node['prepare_activity'].json.selectedActivity.type,\n  activityName: $node['prepare_activity'].json.selectedActivity.name,\n  isSuccess: activityResult.isSuccess,\n  responseTime: activityResult.recordData.responseTime,\n  message: activityResult.isSuccess ? '执行成功' : (activityResult.recordData.errorMessage || '执行失败'),\n  recordSubmitted: recordResponse.code === 0\n};\n\nconsole.log('ERP采购专员执行完成:', JSON.stringify(summary, null, 2));\n\nreturn { summary };"
+      },
+      "id": "complete",
+      "name": "完成",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        300
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "start_trigger": {
+      "main": [
+        [
+          {
+            "node": "init_config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "init_config": {
+      "main": [
+        [
+          {
+            "node": "login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "login": {
+      "main": [
+        [
+          {
+            "node": "prepare_activity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "prepare_activity": {
+      "main": [
+        [
+          {
+            "node": "record_start",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_start": {
+      "main": [
+        [
+          {
+            "node": "activity_switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "activity_switch": {
+      "main": [
+        [
+          {
+            "node": "create_purchase_order",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create_purchase_in",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create_purchase_return",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "create_supplier",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "query_supplier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_purchase_order": {
+      "main": [
+        [
+          {
+            "node": "submit_purchase_order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_purchase_order": {
+      "main": [
+        [
+          {
+            "node": "record_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_purchase_in": {
+      "main": [
+        [
+          {
+            "node": "submit_purchase_in",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_purchase_in": {
+      "main": [
+        [
+          {
+            "node": "record_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_purchase_return": {
+      "main": [
+        [
+          {
+            "node": "submit_purchase_return",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_purchase_return": {
+      "main": [
+        [
+          {
+            "node": "record_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_supplier": {
+      "main": [
+        [
+          {
+            "node": "submit_supplier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_supplier": {
+      "main": [
+        [
+          {
+            "node": "record_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query_supplier": {
+      "main": [
+        [
+          {
+            "node": "record_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_result": {
+      "main": [
+        [
+          {
+            "node": "submit_record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "submit_record": {
+      "main": [
+        [
+          {
+            "node": "complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "1.0.0",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "id": "erp-purchase-agent",
+  "tags": [
+    {
+      "createdAt": "2024-01-01T00:00:00.000Z",
+      "updatedAt": "2024-01-01T00:00:00.000Z",
+      "id": "erp-purchase-agent",
+      "name": "ERP采购专员"
+    }
+  ]
+} 
