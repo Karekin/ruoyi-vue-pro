@@ -1,0 +1,8 @@
+.git
+**/target/
+**/node_modules/
+temp/
+.idea/
+.vscode/
+*.iml
+yudao-ui/dist/
