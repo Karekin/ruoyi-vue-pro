@@ -2,14 +2,15 @@
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /src
 
-# 仅拷贝 POM 以命中依赖缓存（根 POM + yudao-server 的 POM）
+# 先拷 POM 命中缓存（根 POM + 所有 yudao-* 子模块的 POM，避免 go-offline 报模块缺失）
 COPY pom.xml .
-COPY yudao-server/pom.xml yudao-server/pom.xml
-RUN mvn -q -DskipTests dependency:go-offline || true
+COPY yudao-*/pom.xml yudao-*/pom.xml
+RUN mvn -q -B -DskipTests -pl yudao-server -am dependency:go-offline || true
 
-# 再拷贝完整源码，仅构建 yudao-server（-am 会把依赖子模块一起编译）
+# 再拷完整源码，仅构建 yudao-server（-am 会把依赖子模块一起编译）
 COPY . .
-RUN mvn -q -DskipTests clean package -pl yudao-server -am && \
+RUN mvn -q -B -DskipTests clean package -pl yudao-server -am && \
+    mkdir -p /out && \
     cp yudao-server/target/*.jar /out/app.jar
 
 # ========= run stage (JRE 17) =========
