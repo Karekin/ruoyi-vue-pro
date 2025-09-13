@@ -51,7 +51,7 @@ jobs:
           tags: |                                 # 决定镜像名和 tag
             ${{ secrets.DOCKER_USERNAME }}/yudao-server:latest
             ${{ secrets.DOCKER_USERNAME }}/yudao-server:${{ github.sha }}
-            ghcr.io/${{ github.repository_owner }}/ruoyi-vue-pro:server
-            ghcr.io/${{ github.repository_owner }}/ruoyi-vue-pro:server-${{ github.sha }}
+            ghcr.io/${{ toLower(github.repository_owner) }}/ruoyi-vue-pro:server
+            ghcr.io/${{ toLower(github.repository_owner) }}/ruoyi-vue-pro:server-${{ github.sha }}
           cache-from: type=gha                    # GHA 缓存提速（支持多平台）
           cache-to: type=gha,mode=max
