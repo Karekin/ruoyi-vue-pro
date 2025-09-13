@@ -1,4 +1,4 @@
-name: Build and Push Docker Image (amd64-only)
+name: Build and Push Docker Image (amd64-only) and deploy
 
 on:
   push:
@@ -41,3 +41,15 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false         # 关掉溯源元数据，略提速
+  deploy:
+    needs: build-image
+    runs-on: ubuntu-latest
+    if: github.repository == 'karekin/ruoyi-vue-pro'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: rollout restart deployment yudao-server
