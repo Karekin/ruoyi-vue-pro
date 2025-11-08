@@ -70,6 +70,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OAuth2AccessTokenDO refreshAccessToken(String refreshToken, String clientId) {
+        // 清洗refreshToken
+        refreshToken = cleanToken(refreshToken);
+        
         // 查询访问令牌
         OAuth2RefreshTokenDO refreshTokenDO = oauth2RefreshTokenMapper.selectByRefreshToken(refreshToken);
         if (refreshTokenDO == null) {
@@ -101,6 +104,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
 
     @Override
     public OAuth2AccessTokenDO getAccessToken(String accessToken) {
+        // 清洗token：如果是JSON格式的缓存包装对象，提取实际token值
+        accessToken = cleanToken(accessToken);
+        
         // 优先从 Redis 中获取
         OAuth2AccessTokenDO accessTokenDO = oauth2AccessTokenRedisDAO.get(accessToken);
         if (accessTokenDO != null) {
@@ -141,6 +147,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public OAuth2AccessTokenDO removeAccessToken(String accessToken) {
+        // 清洗token
+        accessToken = cleanToken(accessToken);
+        
         // 删除访问令牌
         OAuth2AccessTokenDO accessTokenDO = oauth2AccessTokenMapper.selectByAccessToken(accessToken);
         if (accessTokenDO == null) {
@@ -214,6 +223,38 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
 
     private static String generateRefreshToken() {
         return IdUtil.fastSimpleUUID();
+    }
+
+    /**
+     * 清洗token：如果token是JSON格式的缓存包装对象，提取实际的token值
+     * <p>
+     * 格式示例：{"c":1760800652663,"e":253402300799000,"v":"\"f07d394b0ccc42f880d163d529abb80d\""}
+     * 实际值：f07d394b0ccc42f880d163d529abb80d
+     *
+     * @param token 原始token
+     * @return 清洗后的token
+     */
+    private static String cleanToken(String token) {
+        if (cn.hutool.core.text.CharSequenceUtil.isBlank(token)) {
+            return token;
+        }
+        
+        // 如果是JSON格式，提取其中的 v 字段
+        if (token.startsWith("{") && token.contains("\"v\":")) {
+            try {
+                cn.hutool.json.JSONObject jsonObject = cn.hutool.json.JSONUtil.parseObj(token);
+                if (jsonObject.containsKey("v")) {
+                    String value = jsonObject.getStr("v");
+                    // 移除可能存在的转义引号
+                    return cn.hutool.core.text.CharSequenceUtil.removeAll(
+                            cn.hutool.core.text.CharSequenceUtil.removeAll(value, "\\\""), "\"");
+                }
+            } catch (Exception e) {
+                // JSON解析失败，返回原始token
+            }
+        }
+        
+        return token;
     }
 
 }

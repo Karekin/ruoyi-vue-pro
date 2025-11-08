@@ -2,7 +2,8 @@ package cn.iocoder.yudao.framework.security.core.util;
 
 import cn.hutool.core.map.MapUtil;
 import cn.hutool.core.util.ObjUtil;
-import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONObject;
+import cn.hutool.json.JSONUtil;
 import cn.iocoder.yudao.framework.security.core.LoginUser;
 import cn.iocoder.yudao.framework.web.core.util.WebFrameworkUtils;
 import org.springframework.lang.Nullable;
@@ -42,15 +43,19 @@ public class SecurityFrameworkUtils {
                                              String headerName, String parameterName) {
         // 1. 获得 Token。优先级：Header > Parameter
         String token = request.getHeader(headerName);
-        if (StrUtil.isEmpty(token)) {
+        if (cn.hutool.core.text.CharSequenceUtil.isEmpty(token)) {
             token = request.getParameter(parameterName);
         }
         if (!StringUtils.hasText(token)) {
             return null;
         }
+        
         // 2. 去除 Token 中带的 Bearer
         int index = token.indexOf(AUTHORIZATION_BEARER + " ");
-        return index >= 0 ? token.substring(index + 7).trim() : token;
+        token = index >= 0 ? token.substring(index + 7).trim() : token;
+        
+        // 3. 清洗token：处理JSON格式的缓存包装对象
+        return cleanToken(token);
     }
 
     /**
@@ -153,6 +158,40 @@ public class SecurityFrameworkUtils {
         }
         // 重点：跨租户访问时，无法进行权限校验
         return ObjUtil.notEqual(loginUser.getVisitTenantId(), loginUser.getTenantId());
+    }
+
+    /**
+     * 清洗token：如果token是JSON格式的缓存包装对象，提取实际的token值
+     * <p>
+     * 格式示例：{"c":1760800652663,"e":253402300799000,"v":"\"f07d394b0ccc42f880d163d529abb80d\""}
+     * 实际值：f07d394b0ccc42f880d163d529abb80d
+     *
+     * @param token 原始token
+     * @return 清洗后的token
+     */
+    private static String cleanToken(String token) {
+        if (cn.hutool.core.text.CharSequenceUtil.isBlank(token)) {
+            return token;
+        }
+        
+        // 如果是JSON格式，提取其中的 v 字段
+        if (token.startsWith("{") && token.contains("\"v\":")) {
+            try {
+                JSONObject jsonObject = JSONUtil.parseObj(token);
+                if (jsonObject.containsKey("v")) {
+                    String value = jsonObject.getStr("v");
+                    // 移除可能存在的转义引号
+                    if (value != null) {
+                        return cn.hutool.core.text.CharSequenceUtil.removeAll(
+                                cn.hutool.core.text.CharSequenceUtil.removeAll(value, "\\\""), "\"");
+                    }
+                }
+            } catch (Exception e) {
+                // JSON解析失败，返回原始token
+            }
+        }
+        
+        return token;
     }
 
 }
